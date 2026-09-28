@@ -18,17 +18,29 @@
 
 ## 安装
 
-### 1. 装好 QX 证书（**最容易漏的一步**）
+### ⭐ 方式一：引用资源一键导入（推荐）
 
-- QX → 设置 → 证书管理 → 生成证书 → 安装
-- iOS「设置 → 通用 → VPN与设备管理」→ 安装描述文件
-- iOS「设置 → 通用 → 关于本机 → **证书信任设置**」→ 打开 QX 证书的 **完全信任**
+QX → 设置 → **引用资源** → 添加，粘贴这条链接：
 
-> ⚠️ 只安装不信任 = 无效。80% 的「脚本没生效」都出在这里。
+```
+https://cdn.jsdelivr.net/gh/lichuntu/doubao-nowm@main/doubao-nowm.conf
+```
 
-### 2. 加入配置
+这个 `.conf` 已经**同时包含 rewrite 规则和 MITM 域名**，导入后自动生效，不用手动拼配置。
 
-把 [`quantumultx.conf`](./quantumultx.conf) 里的 `[rewrite_local]` 与 `[mitm]` 两段合并进你的 QX 配置：
+> 若你的 QX 习惯用配置文件方式，也可以在配置里写：
+> ```ini
+> [resource]
+> doubao-nowm = https://cdn.jsdelivr.net/gh/lichuntu/doubao-nowm@main/doubao-nowm.conf, tag=豆包无水印, enabled=true
+> ```
+
+**导入前请先完成下面的「证书」步骤。**
+
+---
+
+### 方式二：手动加入配置
+
+如果你不想用引用资源，把 [`quantumultx.conf`](./quantumultx.conf) 里的两段合并进 QX 配置：
 
 ```ini
 [rewrite_local]
@@ -43,11 +55,21 @@ hostname = www.doubao.com
 
 > ⚠️ **不要**把 `byteimg.com` 加进 MITM —— 图片 CDN 是二进制流，解密只会拖慢加载。
 
-### 3. 打开开关
+---
+
+### 🔐 证书（前置条件，**最容易漏**）
+
+- QX → 设置 → 证书管理 → 生成证书 → 安装
+- iOS「设置 → 通用 → VPN与设备管理」→ 安装描述文件
+- iOS「设置 → 通用 → 关于本机 → **证书信任设置**」→ 打开 QX 证书的 **完全信任**
+
+> ⚠️ 只安装不信任 = 无效。80% 的「脚本没生效」都出在这里。
+
+### 打开开关
 
 QX 主界面打开「重写」+「MITM」，然后启动 QX。
 
-### 4. 测试
+### 测试
 
 浏览器打开分享链接 → 图片应直接是无水印原图。
 
