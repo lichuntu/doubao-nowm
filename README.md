@@ -32,11 +32,14 @@
 
 ```ini
 [rewrite_local]
-^https?:\/\/www\.doubao\.com\/thread\/ url script-response-body https://raw.githubusercontent.com/lichuntu/doubao-nowm/main/doubao-nowm.js
+^https?:\/\/www\.doubao\.com\/thread\/ url script-response-body https://cdn.jsdelivr.net/gh/lichuntu/doubao-nowm@main/doubao-nowm.js
 
 [mitm]
 hostname = www.doubao.com
 ```
+
+> ⚠️ **脚本直链用的是 jsDelivr CDN**，不是 `raw.githubusercontent.com` —— 后者在国内实测不通。
+> 若 jsDelivr 也不通，可把前缀换成 `fastly.` / `testingcf.` / `gcore.`。
 
 > ⚠️ **不要**把 `byteimg.com` 加进 MITM —— 图片 CDN 是二进制流，解密只会拖慢加载。
 
