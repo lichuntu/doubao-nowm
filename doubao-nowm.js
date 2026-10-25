@@ -76,13 +76,19 @@ const RE_OBJ = /^https?:\/\/[^/]+(\/[^~?\s]+)/;
 //
 //    结构:  https://host/path~tplv-<kind>.<ext>?k=v(\+u0026k=v)*
 const RE_URL = new RegExp(
-  'https?://[A-Za-z0-9._-]+\\.byteimg\\.com/' +          // 域名
+  // 协议头：兼容三种写法
+  //   1) https://          正常
+  //   2) https:\u002F\u002F  单层转义
+  //   3) https:\\u002F\\u002F 双层转义（新版页面实际使用）
+  'https?:' +
+  '(?:\\/{2}|(?:\\\\+u002F){2}|(?:\\\\+/){2})' +
+  '[A-Za-z0-9._-]+\\.byteimg\\.com' +                    // 域名
+  '(?:\\/|\\\\+u002F)' +                                 // 路径分隔符(可能转义)
   '[^\\s"\'<>{}]*?~tplv-[A-Za-z0-9._-]*?' +              // 路径 + 模板前缀
   // 【模板类型】不写死具体名字，因为豆包会改名：
   //   lwm3 / cthumb_lwm3  → 旧版(light watermark)
   //   wm0   / cthumb_wm0  → 新版(watermark)
   //   private / preview / image / icon / avatar ... → 其他变体
-  // 统一用「模板名最后一段」捕获，后续判断是否为 image_raw 决定替换与否。
   '([A-Za-z0-9_]+)' +                                     // 模板名末段(捕获)
   '\\.' +                                                 // 扩展名分隔
   '[A-Za-z0-9]+' +                                        // 扩展名
