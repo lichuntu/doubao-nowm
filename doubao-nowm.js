@@ -45,6 +45,20 @@
  */
 
 /* ------------------------------------------------------------------
+ * 调试开关
+ * ------------------------------------------------------------------
+ * 设为 true 后，脚本会把关键信息打到 QX 日志（搜索 "[db-nwm]" 即可看到）。
+ * 平时保持 false，避免污染日志。
+ */
+const DEBUG = false;
+
+function dlog(...args) {
+  if (DEBUG) {
+    try { console.log('[db-nwm]', args.join(' ')); } catch (e) {}
+  }
+}
+
+/* ------------------------------------------------------------------
  * 常量
  * ------------------------------------------------------------------ */
 
@@ -64,7 +78,13 @@ const RE_OBJ = /^https?:\/\/[^/]+(\/[^~?\s]+)/;
 const RE_URL = new RegExp(
   'https?://[A-Za-z0-9._-]+\\.byteimg\\.com/' +          // 域名
   '[^\\s"\'<>{}]*?~tplv-[A-Za-z0-9._-]*?' +              // 路径 + 模板前缀
-  '(image_raw|lwm\\d*|cthumb_lwm\\d*)[A-Za-z0-9._-]*\\.' + // 模板类型 + 扩展名前
+  // 【模板类型】不写死具体名字，因为豆包会改名：
+  //   lwm3 / cthumb_lwm3  → 旧版(light watermark)
+  //   wm0   / cthumb_wm0  → 新版(watermark)
+  //   private / preview / image / icon / avatar ... → 其他变体
+  // 统一用「模板名最后一段」捕获，后续判断是否为 image_raw 决定替换与否。
+  '([A-Za-z0-9_]+)' +                                     // 模板名末段(捕获)
+  '\\.' +                                                 // 扩展名分隔
   '[A-Za-z0-9]+' +                                        // 扩展名
   '(?:' +                                                 // query(可选)
     '\\?' +
@@ -73,6 +93,9 @@ const RE_URL = new RegExp(
   ')?',
   'gi'
 );
+
+// 哪些模板名算「原图」——可直接使用
+const KIND_RAW = /^image_raw$/i;
 
 /* ------------------------------------------------------------------
  * 文本清洗：转义还原 / 还原后的反向处理
@@ -118,17 +141,54 @@ function objPathOf(u) {
  * 主流程
  * ------------------------------------------------------------------ */
 
-let body = $response.body;
+dlog('=== 命中分享页重写 ===');
+dlog('body 类型:', typeof $response.body);
 
-// 非文本 / 空响应 → 放行
-if (!body || typeof body !== 'string') {
+let rawBody = $response.body;
+
+// ── 类型兼容 ──
+// QX 的 $response.body 通常是字符串，但：
+//   ① 响应被 gzip/br 压缩且未自动解压时，可能是 Uint8Array / 乱码字符串
+//   ② 少数版本会给出对象
+// 这里统一做一次「尽力还原成字符串」处理。
+let body = '';
+if (typeof rawBody === 'string') {
+  body = rawBody;
+} else if (rawBody && typeof rawBody === 'object') {
+  // Uint8Array / ArrayBuffer 等
+  try {
+    const u8 = rawBody instanceof Uint8Array
+      ? rawBody
+      : (typeof ArrayBuffer !== 'undefined' && rawBody instanceof ArrayBuffer)
+        ? new Uint8Array(rawBody)
+        : null;
+    if (u8) {
+      // 若是 gzip (1f 8b) / brotli 特征则无法用纯 JS 还原，直接放行交给 QX
+      if (u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
+        $done({ body: rawBody });
+      }
+      let s = '';
+      for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+      // 尝试按 UTF-8 解码
+      body = decodeURIComponent(escape(s));
+    } else {
+      $done({});
+    }
+  } catch (e) {
+    $done({});
+  }
+} else {
   $done({});
 }
 
+if (!body) $done({});
+
 // 只处理含图片数据的页面
 if (body.indexOf('byteimg') === -1) {
+  dlog('未发现 byteimg，放行。body 前200字符:', body.slice(0, 200));
   $done({ body });
 }
+dlog('body 长度:', body.length, '| byteimg 出现次数:', (body.match(/byteimg/g) || []).length);
 
 const decoded = unescapeText(body);
 
@@ -152,7 +212,9 @@ while ((m = RE_URL.exec(decoded)) !== null) {
 }
 
 const objCount = Object.keys(rawIndex).length;
+dlog('无水印原图对象数:', objCount);
 if (objCount === 0) {
+  dlog('本页无可用原图，放行');
   $done({ body });               // 本页无原图可换
 }
 
@@ -184,8 +246,9 @@ let replaced = 0;
 let skipped = 0;
 
 body = body.replace(RE_URL, function (hit) {
-  const kind = (hit.match(/~tplv-[A-Za-z0-9._-]*?(image_raw|lwm\d*|cthumb_lwm\d*)/i) || [])[1] || '';
-  if (/image_raw/i.test(kind)) return hit;           // 本身已是原图，跳过
+  // 模板名末段：image_raw / cthumb_wm0 / private / image / ...
+  const kind = (hit.match(/~tplv-[A-Za-z0-9._-]*?([A-Za-z0-9_]+)\.[A-Za-z0-9]+(?:[?\\]|$)/) || [])[1] || '';
+  if (KIND_RAW.test(kind)) return hit;               // 本身已是原图，跳过
 
   const clean = trimUrl(unescapeText(hit));
   const key = objPathOf(clean);
@@ -193,6 +256,7 @@ body = body.replace(RE_URL, function (hit) {
 
   if (!grp) { skipped++; return hit; }               // 无对应原图，保持原样
 
+  // 优先保持扩展名一致（heic 原图→heic，否则退回 png）
   const isHeic = /\.heic(\?|$)/i.test(clean);
   const target = (isHeic && grp.heic) ? grp.heic : (grp.png || grp.heic);
   if (!target) { skipped++; return hit; }
@@ -201,4 +265,5 @@ body = body.replace(RE_URL, function (hit) {
   return toEscapedStyle(target, hit);                // 按原转义风格回写
 });
 
+dlog('替换完成 | 已替换:', replaced, '| 跳过:', skipped);
 $done({ body });
